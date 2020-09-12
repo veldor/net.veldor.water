@@ -25,7 +25,6 @@ public class EventManager {
     }
 
     public void notify(String eventType, String message) {
-        System.out.println("start notification of " + message);
         List<EventListener> users = listeners.get(eventType);
         for (EventListener listener : users) {
             listener.update(eventType, message);

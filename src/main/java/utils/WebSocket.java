@@ -6,68 +6,141 @@ import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class WebSocket {
 
     private static WebSocket instance;
     private WebSocketClient mWs;
     public EventManager events;
+    private boolean mWaitForStartPumpConfirm = false;
+    private boolean mWaitForStopPumpConfirm = false;
 
-    public static WebSocket getInstance(){
-    if(instance == null){
-        try {
-            instance = new WebSocket();
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
+    public static WebSocket getInstance() {
+        if (instance == null) {
+            try {
+                instance = new WebSocket();
+            } catch (URISyntaxException e) {
+                e.printStackTrace();
+            }
         }
+        return instance;
     }
-    return instance;
-}
 
     private WebSocket() throws URISyntaxException {
         // register observers
-        this.events = new EventManager("test");
+        this.events = new EventManager("message", "pump_status", "water_status");
         // установлю подключение
         createWebSocket();
         //open websocket
         mWs.connect();
-        events.notify("test", "Инициализирую подключение сокета");
+        events.notify("message", "Инициализирую подключение сокета");
     }
 
     private void createWebSocket() throws URISyntaxException {
 
-        mWs = new WebSocketClient( new URI( "ws://127.0.0.1:8002/" ))
-        {
+        mWs = new WebSocketClient(new URI("ws://127.0.0.1:8002/")) {
             @Override
-            public void onMessage( String message ) {
-                if(message != null){
+            public void onMessage(String message) {
+                if (message != null) {
                     // если получен ответ об успешной аутентификации- запрошу текущий статус устройства
                     JSONObject response = new JSONObject(message);
                     // проверю команду
-                    if(response.has("cmd")){
+                    if (response.has("cmd")) {
                         String cmd = response.getString("cmd");
-                        if(cmd.equals("auth_resp")){
-                            // получу статус
-                            boolean status = response.getBoolean("status");
-                            if(status){
-                                events.notify("test", "Успешная аутентификация");
-                                // получу последние данные
-                                requestLastReaderData();
+                        switch (cmd) {
+                            case "auth_resp": {
+                                // получу статус
+                                boolean status = response.getBoolean("status");
+                                if (status) {
+                                    events.notify("message", "Успешная аутентификация");
+                                    // получу последние данные
+                                    requestLastReaderData();
+                                }
+                                break;
                             }
-                        }
-                        else if(cmd.equals("get_data_resp")){
-                            // получены данные о счётчике
-                            JSONArray info = response.getJSONArray("data_list");
-                            JSONObject answerItem = (JSONObject) info.get(0);
-                            String data = answerItem.getString("data");
-                            String status = data.substring(32, 40);
-                            if(Integer.parseInt(status) > 0){
-                                events.notify("test", "Вход замкнут");
+                            case "get_data_resp": {
+                                System.out.println("Получен ответ на запрос");
+                                /*try {
+                                    PrintWriter out = new PrintWriter("received_data.json");
+                                    out.println(response.toString());
+                                    out.close();
+                                } catch (FileNotFoundException e) {
+                                    e.printStackTrace();
+                                }*/
+                                // получены данные о счётчике
+                                // проверю, что считыватель тот
+                                if (response.getString("devEui").equals("3735333773386805")) {
+                                    JSONArray info = response.getJSONArray("data_list");
+                                    JSONObject answerItem = (JSONObject) info.get(0);
+                                    String data = answerItem.getString("data");
+                                    if (data.startsWith("01")) {
+                                        System.out.println("find data " + data);
+                                        String status = data.substring(32, 40);
+                                        if (Integer.parseInt(status) > 0) {
+                                            events.notify("water_status", "Вход замкнут");
+                                        } else {
+                                            events.notify("water_status", "Вход разомкнут");
+                                        }
+                                    } else if (data.startsWith("05")) {
+                                        // изменилось состояние насоса
+                                        handlePumpStatusChange(data);
+                                    }
+                                }
+                                break;
                             }
-                            else{
-                                events.notify("test", "Вход разомкнут");
+                            case "rx": {
+                                if (response.getString("devEui").equals("3735333773386805")) {
+                                    String data = response.getString("data");
+                                    if (data.startsWith("02")) {
+                                        events.notify("message", "Произошло действие уровня воды");
+                                        String status = data.substring(6, 8);
+                                        if (status.equals("03")) {
+                                            // наш вход
+                                            status = data.substring(32, 40);
+                                            if (Integer.parseInt(status) > 0) {
+                                                events.notify("water_status", "Мало воды, запускаю насос");
+                                                startPump();
+                                                writeWaterLog("Мало воды, запускаю насос");
+                                            } else {
+                                                events.notify("water_status", "Воды достаточно, останавливаю насос");
+                                                writeWaterLog("Воды достаточно, останавливаю насос");
+                                                stopPump();
+                                            }
+                                        }
+                                    } else if (data.startsWith("05")) {
+                                        // изменилось состояние насоса
+                                        handlePumpStatusChange(data);
+                                    }
+                                }
+                            }
+                            break;
+                            case "send_data_resp": {
+                                boolean status = response.getBoolean("status");
+                                if (mWaitForStartPumpConfirm) {
+                                    mWaitForStartPumpConfirm = false;
+                                    if (status) {
+                                        events.notify("message", "Команда на запуск насоса передана");
+                                    } else {
+                                        events.notify("message", "Не удалось передать команду на запуск насоса");
+                                    }
+                                } else if (mWaitForStopPumpConfirm) {
+                                    mWaitForStopPumpConfirm = false;
+                                    if (status) {
+                                        events.notify("message", "Команда на остановку насоса передана");
+                                    } else {
+                                        events.notify("message", "Не удалось передать команду на остановку насоса");
+                                    }
+                                }
+
+                                break;
                             }
                         }
                     }
@@ -75,9 +148,9 @@ public class WebSocket {
             }
 
             @Override
-            public void onOpen( ServerHandshake handshake ) {
-                System.out.println( "opened connection" );
-                events.notify("test", "Соединение установлено");
+            public void onOpen(ServerHandshake handshake) {
+                System.out.println("opened connection");
+                events.notify("message", "Соединение установлено");
                 // аутентифицируюсь
                 JSONObject obj = new JSONObject();
                 obj.put("cmd", "auth_req");
@@ -85,20 +158,20 @@ public class WebSocket {
                 obj.put("password", "5PDMtu24mzSRXvew");
                 String message = obj.toString();
                 mWs.send(message);
-                events.notify("test", "Посылаю запрос на аутентификацию");
+                events.notify("message", "Посылаю запрос на аутентификацию");
             }
 
             @Override
-            public void onClose( int code, String reason, boolean remote ) {
-                System.out.println( "closed connection" );
-                events.notify("test", "Соединение с сервером закрыто... Инициализирую перезапуск");
+            public void onClose(int code, String reason, boolean remote) {
+                System.out.println("closed connection");
+                events.notify("message", "Соединение с сервером закрыто... Инициализирую перезапуск");
                 // через 5 секунд попробую перезапустить сервер
                 new java.util.Timer().schedule(
                         new java.util.TimerTask() {
                             @Override
                             public void run() {
                                 System.out.println("restarting connection");
-                                events.notify("test", "Перезапуск соединения с сервером");
+                                events.notify("message", "Перезапуск соединения с сервером");
                                 WebSocket.getInstance().restartConnection();
                             }
                         },
@@ -107,11 +180,46 @@ public class WebSocket {
             }
 
             @Override
-            public void onError( Exception ex ) {
+            public void onError(Exception ex) {
                 ex.printStackTrace();
             }
         };
-        events.notify("test", "Сокет создан");
+        events.notify("message", "Сокет создан");
+    }
+
+    private void writeWaterLog(String s) {
+        try {
+            PrintWriter out = new PrintWriter(new FileOutputStream(
+                    new File("water_log.log"),
+                    true));
+            out.println(new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss ").format(new Date()) + s);
+            out.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handlePumpStatusChange(String data) {
+        String status = data.substring(8, 10);
+        if (Integer.parseInt(status) > 0) {
+            events.notify("pump_status", "Насос запущен");
+            writePumpLog("Насос запущен");
+        } else {
+            events.notify("pump_status", "Насос остановлен");
+            writePumpLog("Насос остановлен");
+        }
+    }
+
+    private void writePumpLog(String s) {
+        try {
+            PrintWriter out = new PrintWriter(new FileOutputStream(
+                    new File("pump_log.log"),
+                    true));
+            out.println(new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss ").format(new Date()) + s);
+            out.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
     }
 
     private void restartConnection() {
@@ -126,12 +234,13 @@ public class WebSocket {
     }
 
     public void checkWaterStatus() {
-        if(mWs.isOpen()){
+        if (mWs.isOpen()) {
+            System.out.println("check water status");
             requestLastReaderData();
         }
     }
 
-    private void requestLastReaderData(){
+    private void requestLastReaderData() {
         // получу последние данные
         JSONObject obj = new JSONObject();
         obj.put("cmd", "get_data_req");
@@ -144,5 +253,41 @@ public class WebSocket {
         obj.put("select", select);
         String request = obj.toString();
         mWs.send(request);
+    }
+
+    public void startPump() {
+        // запущу насос
+        JSONObject obj = new JSONObject();
+        obj.put("cmd", "send_data_req");
+        JSONArray arr = new JSONArray();
+        JSONObject innerObj = new JSONObject();
+        innerObj.put("ack", "true");
+        innerObj.put("data", "030100");
+        innerObj.put("devEui", "3735333773386805");
+        innerObj.put("port", 2);
+        arr.put(innerObj);
+        obj.put("data_list", arr);
+        String message = obj.toString();
+        mWs.send(message);
+        events.notify("pump_status", "Отправлена команда на включение насоса");
+        mWaitForStartPumpConfirm = true;
+    }
+
+    public void stopPump() {
+        // остановлю насос
+        JSONObject obj = new JSONObject();
+        obj.put("cmd", "send_data_req");
+        JSONArray arr = new JSONArray();
+        JSONObject innerObj = new JSONObject();
+        innerObj.put("ack", "true");
+        innerObj.put("data", "030101");
+        innerObj.put("devEui", "3735333773386805");
+        innerObj.put("port", 2);
+        arr.put(innerObj);
+        obj.put("data_list", arr);
+        String message = obj.toString();
+        mWs.send(message);
+        events.notify("pump_status", "Отправлена команда на выключение насоса");
+        mWaitForStopPumpConfirm = true;
     }
 }

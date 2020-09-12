@@ -1,0 +1,20 @@
+<component name="ArtifactManager">
+  <artifact type="javafx" name="net.veldor.water">
+    <output-path>$PROJECT_DIR$/../../JavaReleases/net.veldor.water/out/artifacts/net_veldor_water</output-path>
+    <properties id="javafx-properties">
+      <options>
+        <option name="appClass" value="" />
+        <option name="description" value="" />
+        <option name="htmlPlaceholderId" value="" />
+        <option name="title" value="Умный насос" />
+        <option name="vendor" value="Veldor" />
+        <option name="version" value="0.1" />
+      </options>
+    </properties>
+    <root id="root">
+      <element id="archive" name="net_veldor_water.jar">
+        <element id="module-output" name="net.veldor.water" />
+      </element>
+    </root>
+  </artifact>
+</component>

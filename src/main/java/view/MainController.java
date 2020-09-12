@@ -12,11 +12,11 @@ import observer.EventListener;
 import utils.WebSocket;
 import view.view_models.ControllerModel;
 
-import java.io.IOException;
-
 
 public class MainController implements Controller, EventListener {
-    public Label errorTextLabel;
+    public Label WaterControlTextLabel;
+    public Label PumpControlTextLabel;
+    public Label LastMessageTextLabel;
     public Button startWaterButton;
     public Button stopWaterButton;
     private WebSocket mWs;
@@ -27,22 +27,14 @@ public class MainController implements Controller, EventListener {
         System.out.println("activate start pump");
         startWaterButton.setDisable(true);
         stopWaterButton.setDisable(false);
-        try {
-            mMyModel.createInfoWindow("Запускаю насос", mStage);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        WebSocket.getInstance().startPump();
     }
 
     public void stopPump(ActionEvent actionEvent) {
         startWaterButton.setDisable(false);
         stopWaterButton.setDisable(true);
         System.out.println("activate stop pump");
-        try {
-            mMyModel.createInfoWindow("Останавливаю насос", mStage);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        WebSocket.getInstance().stopPump();
     }
 
     public void init(Stage primaryStage) {
@@ -52,37 +44,52 @@ public class MainController implements Controller, EventListener {
         // запущу сокет
         try {
             mWs = WebSocket.getInstance();
-            errorTextLabel.setText("Соединение с сервером установлено");
+            LastMessageTextLabel.setText("Соединение с сервером установлено");
         } catch (Exception e) {
             e.printStackTrace();
-            errorTextLabel.setText("Ой-ой, не смог установить соединение, перезапускайте меня");
+            LastMessageTextLabel.setText("Ой-ой, не смог установить соединение, перезапускайте меня");
         }
-        // каждые 5 секунд буду проверять статус устройства
+        /*// каждые 5 секунд буду проверять статус устройства
         Timeline fiveSecondsWonder = new Timeline(
-                new KeyFrame(Duration.seconds(5),
+                new KeyFrame(Duration.seconds(20),
                         event -> {
                             WebSocket.getInstance().checkWaterStatus();
                         }));
         fiveSecondsWonder.setCycleCount(Timeline.INDEFINITE);
-        fiveSecondsWonder.play();
+        fiveSecondsWonder.play();*/
         // подпишусь на уведомления
-        mWs.events.subscribe("test", this);
+        mWs.events.subscribe("message", this);
+        mWs.events.subscribe("pump_status", this);
+        mWs.events.subscribe("water_status", this);
     }
 
     @Override
     public void update(String eventType, String message) {
-        Platform.runLater(() -> errorTextLabel.setText(message));
-        if(message.equals("Успешная аутентификация")){
-            Platform.runLater(() -> {
-                startWaterButton.setDisable(false);
-                stopWaterButton.setDisable(false);
-            });
-        }
-        else if(message.equals("Соединение с сервером закрыто... Инициализирую перезапуск")){
-            Platform.runLater(() -> {
-                startWaterButton.setDisable(true);
-                stopWaterButton.setDisable(true);
-            });
+        switch (eventType){
+            case "message":{
+                Platform.runLater(() -> LastMessageTextLabel.setText(message));
+                if (message.equals("Успешная аутентификация")) {
+                    Platform.runLater(() -> {
+                        startWaterButton.setDisable(false);
+                        stopWaterButton.setDisable(false);
+                    });
+                } else if (message.equals("Соединение с сервером закрыто... Инициализирую перезапуск")) {
+                    Platform.runLater(() -> {
+                        startWaterButton.setDisable(true);
+                        stopWaterButton.setDisable(true);
+                    });
+                }
+            }
+            break;
+            case "pump_status":{
+                Platform.runLater(() -> PumpControlTextLabel.setText(message));
+            }
+            break;
+            case "water_status":{
+                Platform.runLater(() -> WaterControlTextLabel.setText(message));
+            }
+            break;
         }
     }
+
 }

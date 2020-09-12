@@ -23,6 +23,8 @@ public class WebSocket {
     private boolean mWaitForStartPumpConfirm = false;
     private boolean mWaitForStopPumpConfirm = false;
 
+    private boolean savedInputState = false;
+
     public static WebSocket getInstance() {
         if (instance == null) {
             try {
@@ -41,7 +43,7 @@ public class WebSocket {
         createWebSocket();
         //open websocket
         mWs.connect();
-        events.notify("message", "Инициализирую подключение сокета");
+        events.notify("message",Misc.getCurrentTime() + "Инициализирую подключение сокета");
     }
 
     private void createWebSocket() throws URISyntaxException {
@@ -60,7 +62,7 @@ public class WebSocket {
                                 // получу статус
                                 boolean status = response.getBoolean("status");
                                 if (status) {
-                                    events.notify("message", "Успешная аутентификация");
+                                    events.notify("message", Misc.getCurrentTime() + "Успешная аутентификация");
                                     // получу последние данные
                                     requestLastReaderData();
                                 }
@@ -85,9 +87,11 @@ public class WebSocket {
                                         System.out.println("find data " + data);
                                         String status = data.substring(32, 40);
                                         if (Integer.parseInt(status) > 0) {
-                                            events.notify("water_status", "Вход замкнут");
+                                            events.notify("water_status", Misc.getCurrentTime() + "Вход замкнут");
+                                            savedInputState = true;
                                         } else {
-                                            events.notify("water_status", "Вход разомкнут");
+                                            events.notify("water_status", Misc.getCurrentTime() + "Вход разомкнут");
+                                            savedInputState = false;
                                         }
                                     } else if (data.startsWith("05")) {
                                         // изменилось состояние насоса
@@ -97,22 +101,31 @@ public class WebSocket {
                                 break;
                             }
                             case "rx": {
+                                // произошло событие
                                 if (response.getString("devEui").equals("3735333773386805")) {
                                     String data = response.getString("data");
                                     if (data.startsWith("02")) {
-                                        events.notify("message", "Произошло действие уровня воды");
+                                        events.notify("message",Misc.getCurrentTime() +  "Произошло действие входного контакта");
                                         String status = data.substring(6, 8);
                                         if (status.equals("03")) {
                                             // наш вход
                                             status = data.substring(32, 40);
                                             if (Integer.parseInt(status) > 0) {
-                                                events.notify("water_status", "Мало воды, запускаю насос");
-                                                startPump();
-                                                writeWaterLog("Мало воды, запускаю насос");
+                                                events.notify("water_status",Misc.getCurrentTime() +  "Входной контакт замкнут");
+                                                // проверю, не дублируется ли событие
+                                                if (savedInputState = false) {
+                                                    savedInputState = true;
+                                                    startPump();
+                                                    writeWaterLog("Входной контакт замкнут");
+                                                }
                                             } else {
-                                                events.notify("water_status", "Воды достаточно, останавливаю насос");
-                                                writeWaterLog("Воды достаточно, останавливаю насос");
-                                                stopPump();
+                                                // проверю, не дублируется ли событие
+                                                if (savedInputState = true) {
+                                                    savedInputState = false;
+                                                    events.notify("water_status",Misc.getCurrentTime() +  "Входной контакт разомкнут");
+                                                    writeWaterLog("Входной контакт разомкнут");
+                                                    stopPump();
+                                                }
                                             }
                                         }
                                     } else if (data.startsWith("05")) {
@@ -127,16 +140,16 @@ public class WebSocket {
                                 if (mWaitForStartPumpConfirm) {
                                     mWaitForStartPumpConfirm = false;
                                     if (status) {
-                                        events.notify("message", "Команда на запуск насоса передана");
+                                        events.notify("message",Misc.getCurrentTime() +  "Команда на запуск насоса передана");
                                     } else {
-                                        events.notify("message", "Не удалось передать команду на запуск насоса");
+                                        events.notify("message",Misc.getCurrentTime() +  "Не удалось передать команду на запуск насоса");
                                     }
                                 } else if (mWaitForStopPumpConfirm) {
                                     mWaitForStopPumpConfirm = false;
                                     if (status) {
-                                        events.notify("message", "Команда на остановку насоса передана");
+                                        events.notify("message",Misc.getCurrentTime() +  "Команда на остановку насоса передана");
                                     } else {
-                                        events.notify("message", "Не удалось передать команду на остановку насоса");
+                                        events.notify("message",Misc.getCurrentTime() +  "Не удалось передать команду на остановку насоса");
                                     }
                                 }
 
@@ -192,7 +205,7 @@ public class WebSocket {
             PrintWriter out = new PrintWriter(new FileOutputStream(
                     new File("water_log.log"),
                     true));
-            out.println(new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss ").format(new Date()) + s);
+            out.println(Misc.getCurrentTime() + s);
             out.close();
         } catch (FileNotFoundException e) {
             e.printStackTrace();
@@ -202,10 +215,10 @@ public class WebSocket {
     private void handlePumpStatusChange(String data) {
         String status = data.substring(8, 10);
         if (Integer.parseInt(status) > 0) {
-            events.notify("pump_status", "Насос запущен");
+            events.notify("pump_status",Misc.getCurrentTime() +  "Насос запущен");
             writePumpLog("Насос запущен");
         } else {
-            events.notify("pump_status", "Насос остановлен");
+            events.notify("pump_status",Misc.getCurrentTime() +  "Насос остановлен");
             writePumpLog("Насос остановлен");
         }
     }
@@ -215,7 +228,7 @@ public class WebSocket {
             PrintWriter out = new PrintWriter(new FileOutputStream(
                     new File("pump_log.log"),
                     true));
-            out.println(new SimpleDateFormat("yyyy.MM.dd.HH.mm.ss ").format(new Date()) + s);
+            out.println(Misc.getCurrentTime() + s);
             out.close();
         } catch (FileNotFoundException e) {
             e.printStackTrace();
@@ -269,7 +282,7 @@ public class WebSocket {
         obj.put("data_list", arr);
         String message = obj.toString();
         mWs.send(message);
-        events.notify("pump_status", "Отправлена команда на включение насоса");
+        events.notify("pump_status",Misc.getCurrentTime() +  "Отправлена команда на включение насоса");
         mWaitForStartPumpConfirm = true;
     }
 
@@ -287,7 +300,7 @@ public class WebSocket {
         obj.put("data_list", arr);
         String message = obj.toString();
         mWs.send(message);
-        events.notify("pump_status", "Отправлена команда на выключение насоса");
+        events.notify("pump_status",Misc.getCurrentTime() +  "Отправлена команда на выключение насоса");
         mWaitForStopPumpConfirm = true;
     }
 }

@@ -68,12 +68,12 @@ public class MainController implements Controller, EventListener {
         switch (eventType){
             case "message":{
                 Platform.runLater(() -> LastMessageTextLabel.setText(message));
-                if (message.equals("Успешная аутентификация")) {
+                if (message.contains("Успешная аутентификация")) {
                     Platform.runLater(() -> {
                         startWaterButton.setDisable(false);
                         stopWaterButton.setDisable(false);
                     });
-                } else if (message.equals("Соединение с сервером закрыто... Инициализирую перезапуск")) {
+                } else if (message.contains("Соединение с сервером закрыто... Инициализирую перезапуск")) {
                     Platform.runLater(() -> {
                         startWaterButton.setDisable(true);
                         stopWaterButton.setDisable(true);

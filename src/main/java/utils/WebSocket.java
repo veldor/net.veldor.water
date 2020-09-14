@@ -275,7 +275,7 @@ public class WebSocket {
         JSONArray arr = new JSONArray();
         JSONObject innerObj = new JSONObject();
         innerObj.put("ack", "true");
-        innerObj.put("data", "030100");
+        innerObj.put("data", "0301ff");
         innerObj.put("devEui", "3735333773386805");
         innerObj.put("port", 2);
         arr.put(innerObj);
@@ -293,7 +293,7 @@ public class WebSocket {
         JSONArray arr = new JSONArray();
         JSONObject innerObj = new JSONObject();
         innerObj.put("ack", "true");
-        innerObj.put("data", "030101");
+        innerObj.put("data", "030111");
         innerObj.put("devEui", "3735333773386805");
         innerObj.put("port", 2);
         arr.put(innerObj);
